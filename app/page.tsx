@@ -1,101 +1,132 @@
-import Image from "next/image";
+'use client';
 
-export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+import { useState, useEffect } from 'react';
+import SearchBar from '../app/components/Search';
+import WeatherCard from '../app/components/WeathCard';
+import ForecastCard from '../app/components/ForecastCard';
+import axios from 'axios';
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+const API_KEY = process.env.NEXT_PUBLIC_WEATHER_API_KEY;
+const WEATHER_BASE_URL = 'https://api.openweathermap.org/data/2.5';
+const GEO_BASE_URL = 'https://api.openweathermap.org/geo/1.0/direct';
+
+const Dashboard: React.FC = () => {
+    const [weather, setWeather] = useState<any>(null);
+    const [forecast, setForecast] = useState<any>(null);
+
+    const fetchCityCoordinates = async (city: string) => {
+        try {
+            const response = await axios.get(GEO_BASE_URL, {
+                params: {
+                    q: city,
+                    limit: 1,
+                    appid: API_KEY,
+                },
+            });
+
+            if (response.data.length === 0) {
+                throw new Error('City not found. Please check the name.');
+            }
+
+            const { lat, lon } = response.data[0];
+            return { lat, lon };
+        } catch (error: any) {
+            console.error('Error fetching city coordinates:', error.message);
+            throw error;
+        }
+    };
+
+    const fetchCurrentWeather = async (lat: number, lon: number) => {
+        try {
+            const response = await axios.get(`${WEATHER_BASE_URL}/weather`, {
+                params: {
+                    lat,
+                    lon,
+                    appid: API_KEY,
+                    units: 'metric',
+                },
+            });
+            return response.data;
+        } catch (error) {
+            console.error('Error fetching current weather:', error.message);
+            throw error;
+        }
+    };
+
+    const fetchWeatherForecast = async (lat: number, lon: number) => {
+        try {
+            const response = await axios.get(`${WEATHER_BASE_URL}/onecall`, {
+                params: {
+                    lat,
+                    lon,
+                    appid: API_KEY,
+                    units: 'metric',
+                    exclude: 'current,minutely,hourly,alerts', // Exclude unnecessary data
+                },
+            });
+            return response.data.daily; // Return daily forecasts
+        } catch (error) {
+            console.error('Error fetching weather forecast:', error.message);
+            throw error;
+        }
+    };
+
+    const handleCitySelect = async (city: string) => {
+        try {
+            const { lat, lon } = await fetchCityCoordinates(city);
+
+            const currentWeather = await fetchCurrentWeather(lat, lon);
+            setWeather(currentWeather);
+
+            const weatherForecast = await fetchWeatherForecast(lat, lon);
+            setForecast(weatherForecast.slice(0, 7)); // Limit to 7 days
+        } catch (error: any) {
+            console.error('Error handling city select:', error.message);
+        }
+    };
+
+    useEffect(() => {
+        navigator.geolocation.getCurrentPosition(async ({ coords }) => {
+            const { latitude, longitude } = coords;
+
+            try {
+                const currentWeather = await fetchCurrentWeather(latitude, longitude);
+                setWeather(currentWeather);
+
+                const weatherForecast = await fetchWeatherForecast(latitude, longitude);
+                setForecast(weatherForecast.slice(0, 7)); // Limit to 7 days
+            } catch (error) {
+                console.error('Error fetching weather data for current location:', error.message);
+            }
+        });
+    }, []);
+
+    return (
+        <div className="p-4">
+            <SearchBar onCitySelect={handleCitySelect} />
+            {weather && (
+                <WeatherCard
+                    temperature={weather.main.temp}
+                    description={weather.weather[0].description}
+                    city={weather.name}
+                />
+            )}
+            {forecast && (
+                <ForecastCard
+                    forecast={forecast.map((day: any) => ({
+                        day: new Date(day.dt * 1000).toLocaleDateString('en-US', {
+                            weekday: 'long',
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric',
+                        }), // Full date
+                        temperature: day.temp.day, // Daily temperature
+                        description: day.weather[0].description,
+                    }))}
+                />
+            )}
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
-  );
-}
+    );
+};
+
+export default Dashboard;
